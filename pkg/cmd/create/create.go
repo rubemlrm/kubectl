@@ -156,6 +156,7 @@ func NewCmdCreate(f cmdutil.Factory, ioStreams genericiooptions.IOStreams) *cobr
 	cmd.AddCommand(NewCmdCreateCronJob(f, ioStreams))
 	cmd.AddCommand(NewCmdCreateIngress(f, ioStreams))
 	cmd.AddCommand(NewCmdCreateToken(f, ioStreams))
+	cmd.AddCommand(NewCmdCreatePersistentVolumeClaim(f, ioStreams))
 	return cmd
 }
 
