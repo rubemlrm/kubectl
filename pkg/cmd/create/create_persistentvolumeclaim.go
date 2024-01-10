@@ -61,12 +61,17 @@ type CreatePersistentVolumeClaimOptions struct {
 
 	PrintObj func(obj runtime.Object) error
 
-	Name             string
-	Namespace        string
-	StorageRequest   string
-	StorageLimit     string
+	// Name for resource (required)
+	Name      string
+	Namespace string
+	// Storage request size (required)
+	StorageRequest string
+	// Storage limit size (optional)
+	StorageLimit string
+	// Storage class associated with this resource (optional)
 	StorageClassName string
-	AccessModes      string
+	// Access mode to perform operations against the resource (optional)
+	AccessModes string
 
 	EnforceNamespace    bool
 	Client              corev1client.CoreV1Interface
@@ -91,7 +96,7 @@ func NewCreatePersistentVolumeClaimOptions(ioStreams genericiooptions.IOStreams)
 func NewCmdCreatePersistentVolumeClaim(f cmdutil.Factory, ioStreams genericiooptions.IOStreams) *cobra.Command {
 	o := NewCreatePersistentVolumeClaimOptions(ioStreams)
 	cmd := &cobra.Command{
-		Use:                   "persistentvolumeclaim NAME [--storage-request=string] [--storage-request=string] [--storage-limit=string] [--access-modes=mode1,mode2] [--dry-run=server|client|none]",
+		Use:                   "persistentvolumeclaim NAME [--storage-request=string] [--storage-request=string] [--storage-limit=string] [--access-modes=mode1,mode2] [--storage-class-name=string] [--dry-run=server|client|none]",
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"pvc"},
 		Short:                 i18n.T("Create a persistentvolumeclaim with the specified name"),
@@ -109,9 +114,10 @@ func NewCmdCreatePersistentVolumeClaim(f cmdutil.Factory, ioStreams genericioopt
 	cmdutil.AddApplyAnnotationFlags(cmd)
 	cmdutil.AddValidateFlags(cmd)
 	cmdutil.AddDryRunFlag(cmd)
-	cmd.Flags().StringVar(&o.StorageRequest, "storage-request", o.StorageRequest, "Storage request capacity")
-	cmd.Flags().StringVar(&o.StorageLimit, "storage-limit", o.StorageLimit, "Storage limit capacity")
-	cmd.Flags().StringVar(&o.AccessModes, "access-modes", o.AccessModes, "Access Modes")
+	cmd.Flags().StringVar(&o.StorageRequest, "storage-request", o.StorageRequest, "Storage request capacity for the pvc")
+	cmd.Flags().StringVar(&o.StorageLimit, "storage-limit", o.StorageLimit, "Storage limit capacity for the pvc")
+	cmd.Flags().StringVar(&o.AccessModes, "access-modes", o.AccessModes, "Access Modes applied to pvc")
+	cmd.Flags().StringVar(&o.StorageClassName, "storage-class-name", o.StorageClassName, "Storage class name that pvc will use")
 	cmdutil.AddFieldManagerFlagVar(cmd, &o.FieldManager, "kubectl-create")
 	return cmd
 }
@@ -240,7 +246,9 @@ func (o *CreatePersistentVolumeClaimOptions) createPersistentVolumeClaim() (*cor
 	if len(o.AccessModes) != 0 {
 		pvc.Spec.AccessModes = o.parseAccessModes()
 	}
-
+	if len(o.StorageClassName) != 0 {
+		pvc.Spec.StorageClassName = &o.StorageClassName
+	}
 	return pvc, nil
 }
 
@@ -269,6 +277,9 @@ func (o *CreatePersistentVolumeClaimOptions) parseResources() (v1.VolumeResource
 		rl, err := resource_requests.ParseQuantity(o.StorageLimit)
 		if err != nil {
 			return vrr, err
+		}
+		if flag := rl.Cmp(rr); flag < 1 {
+			return vrr, fmt.Errorf("Resource limit is the same/less than the resource request")
 		}
 		vrr.Limits = corev1.ResourceList{
 			v1.ResourceStorage: rl,

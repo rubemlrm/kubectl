@@ -17,6 +17,7 @@ limitations under the License.
 package create
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -54,6 +55,12 @@ func TestCreatePersistentVolumeValidation(t *testing.T) {
 			accessModes:    "ReadWriteBoth",
 			expected:       "provided access mode ReadWriteBoth is invalid",
 		},
+		"no error": {
+			name:           pvcName,
+			storageRequest: "5Gi",
+			accessModes:    "ReadWriteOnce",
+			expected:       "",
+		},
 	}
 
 	for name, tc := range tests {
@@ -74,18 +81,23 @@ func TestCreatePersistentVolumeValidation(t *testing.T) {
 
 func TestCreatePersistentVolume(t *testing.T) {
 	pvcName := "test-pvc"
+	pvcStorageClassName := "test-class"
 	tests := map[string]struct {
-		storageRequest string
-		storageLimit   string
-		accessModes    string
-		name           string
-		expected       *corev1.PersistentVolumeClaim
+		storageRequest   string
+		storageLimit     string
+		accessModes      string
+		name             string
+		storageClassName string
+		expected         *corev1.PersistentVolumeClaim
+		err              error
 	}{
 		"just storage request": {
-			storageRequest: "5Gi",
-			storageLimit:   "",
-			accessModes:    "",
-			name:           pvcName,
+			storageRequest:   "5Gi",
+			storageLimit:     "",
+			accessModes:      "",
+			name:             pvcName,
+			storageClassName: "",
+			err:              nil,
 			expected: &corev1.PersistentVolumeClaim{
 				TypeMeta: metav1.TypeMeta{APIVersion: corev1.SchemeGroupVersion.String(), Kind: "PersistentVolumeClaim"},
 				ObjectMeta: metav1.ObjectMeta{
@@ -100,11 +112,35 @@ func TestCreatePersistentVolume(t *testing.T) {
 				},
 			},
 		},
+		"storage request and storageClassName": {
+			storageRequest:   "5Gi",
+			storageLimit:     "",
+			accessModes:      "",
+			name:             pvcName,
+			storageClassName: pvcStorageClassName,
+			err:              nil,
+			expected: &corev1.PersistentVolumeClaim{
+				TypeMeta: metav1.TypeMeta{APIVersion: corev1.SchemeGroupVersion.String(), Kind: "PersistentVolumeClaim"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: pvcName,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					StorageClassName: &pvcStorageClassName,
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceStorage: resource_requests.MustParse("5Gi"),
+						},
+					},
+				},
+			},
+		},
 		"storage request and limits": {
-			storageRequest: "5Gi",
-			storageLimit:   "10Gi",
-			accessModes:    "",
-			name:           pvcName,
+			storageRequest:   "5Gi",
+			storageLimit:     "10Gi",
+			accessModes:      "",
+			name:             pvcName,
+			storageClassName: "",
+			err:              nil,
 			expected: &corev1.PersistentVolumeClaim{
 				TypeMeta: metav1.TypeMeta{APIVersion: corev1.SchemeGroupVersion.String(), Kind: "PersistentVolumeClaim"},
 				ObjectMeta: metav1.ObjectMeta{
@@ -123,10 +159,12 @@ func TestCreatePersistentVolume(t *testing.T) {
 			},
 		},
 		"storage request and access modes": {
-			storageRequest: "5Gi",
-			storageLimit:   "",
-			accessModes:    "ReadWriteOnce",
-			name:           pvcName,
+			storageRequest:   "5Gi",
+			storageLimit:     "",
+			accessModes:      "ReadWriteOnce",
+			name:             pvcName,
+			storageClassName: "",
+			err:              nil,
 			expected: &corev1.PersistentVolumeClaim{
 				TypeMeta: metav1.TypeMeta{APIVersion: corev1.SchemeGroupVersion.String(), Kind: "PersistentVolumeClaim"},
 				ObjectMeta: metav1.ObjectMeta{
@@ -142,19 +180,35 @@ func TestCreatePersistentVolume(t *testing.T) {
 				},
 			},
 		},
+
+		"storage request can't be higher or equal with storage limit": {
+			storageRequest:   "5Gi",
+			storageLimit:     "5Gi",
+			accessModes:      "ReadWriteOnce",
+			name:             pvcName,
+			storageClassName: "",
+			err:              fmt.Errorf("Resource limit is the same/less than the resource request"),
+			expected:         nil,
+		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			o := &CreatePersistentVolumeClaimOptions{
-				Name:           tc.name,
-				StorageRequest: tc.storageRequest,
-				StorageLimit:   tc.storageLimit,
-				AccessModes:    tc.accessModes,
+				Name:             tc.name,
+				StorageRequest:   tc.storageRequest,
+				StorageLimit:     tc.storageLimit,
+				AccessModes:      tc.accessModes,
+				StorageClassName: tc.storageClassName,
 			}
-			pvc, _ := o.createPersistentVolumeClaim()
+			pvc, err := o.createPersistentVolumeClaim()
 			if !apiequality.Semantic.DeepEqual(pvc, tc.expected) {
 				t.Errorf("expected:\n%#v\ngot:\n%#v", tc.expected, pvc)
+			}
+			if tc.err != nil {
+				if err.Error() != tc.err.Error() {
+					t.Errorf("expected:\n%#v\ngot:\n%#v", tc.err, err)
+				}
 			}
 
 		})
